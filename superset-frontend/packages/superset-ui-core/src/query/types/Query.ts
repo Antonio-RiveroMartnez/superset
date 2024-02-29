@@ -77,6 +77,13 @@ export type ResidualQueryObjectData = {
   [key: string]: unknown;
 };
 
+export type QueryObjectInstantTimeComparisonInfo = {
+  /** The column to which direct temporal filters (forthcoming) */
+  range: string;
+  /** The size of bucket by which to group timeseries data (forthcoming) */
+  filter?: QueryObjectFilterClause;
+};
+
 /**
  * Query object directly compatible with the new chart data API.
  * A stricter version of query form data.
@@ -149,6 +156,9 @@ export interface QueryObject
   series_columns?: QueryFormColumn[];
   series_limit?: number;
   series_limit_metric?: Maybe<QueryFormMetric>;
+
+  /** Instant Time Comparison */
+  instant_time_comparison_info?: QueryObjectInstantTimeComparisonInfo;
 }
 
 export interface QueryContext {

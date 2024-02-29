@@ -1,0 +1,834 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+import datetime
+
+from sqlalchemy.orm.session import Session
+
+from superset import db
+
+
+def test_creates_time_comparison_query(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": ["name"],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": False,
+        "is_timeseries": False,
+        "instant_time_comparison_info": {
+            "range": "y",
+        },
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 0,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        WITH query_a_results AS
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1984-01-01 00:00:00'
+            AND ds < '2024-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC
+        LIMIT 10
+        OFFSET 0)
+        SELECT query_a_results.name AS name,
+            query_a_results."SUM(num_boys)" AS "SUM(num_boys)",
+            query_a_results."SUM(num_girls)" AS "SUM(num_girls)",
+            anon_1."SUM(num_boys)" AS "prev_SUM(num_boys)",
+            anon_1."SUM(num_girls)" AS "prev_SUM(num_girls)"
+        FROM
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1983-01-01 00:00:00'
+            AND ds < '2023-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC) AS anon_1
+        JOIN query_a_results ON anon_1.name = query_a_results.name
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
+
+
+def test_creates_time_comparison_query_no_columns(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": [],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": False,
+        "is_timeseries": False,
+        "instant_time_comparison_info": {
+            "range": "y",
+        },
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": False,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": False,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 0,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        WITH query_a_results AS
+        (SELECT sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1984-01-01 00:00:00'
+            AND ds < '2024-02-14 00:00:00'
+        ORDER BY "SUM(num_boys)" DESC
+        LIMIT 10
+        OFFSET 0)
+        SELECT query_a_results."SUM(num_boys)" AS "SUM(num_boys)",
+            query_a_results."SUM(num_girls)" AS "SUM(num_girls)",
+            anon_1."SUM(num_boys)" AS "prev_SUM(num_boys)",
+            anon_1."SUM(num_girls)" AS "prev_SUM(num_girls)"
+        FROM
+        (SELECT sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1983-01-01 00:00:00'
+            AND ds < '2023-02-14 00:00:00'
+        ORDER BY "SUM(num_boys)" DESC) AS anon_1
+        JOIN query_a_results ON 1 = 1
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
+
+
+def test_creates_time_comparison_rowcount_query(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": ["name"],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": True,
+        "is_timeseries": False,
+        "instant_time_comparison_info": {
+            "range": "y",
+        },
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 0,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        WITH query_a_results AS
+        (SELECT COUNT(*) AS rowcount
+        FROM
+            (SELECT name AS name,
+                    sum(num_boys) AS "SUM(num_boys)",
+                    sum(num_girls) AS "SUM(num_girls)"
+            FROM my_schema.my_table
+            WHERE ds >= '1984-01-01 00:00:00'
+                AND ds < '2024-02-14 00:00:00'
+            GROUP BY name
+            ORDER BY "SUM(num_boys)" DESC
+            LIMIT 10
+            OFFSET 0) AS rowcount_qry)
+        SELECT query_a_results.rowcount AS rowcount,
+            anon_1.rowcount AS prev_rowcount
+        FROM
+        (SELECT COUNT(*) AS rowcount
+        FROM
+            (SELECT name AS name,
+                    sum(num_boys) AS "SUM(num_boys)",
+                    sum(num_girls) AS "SUM(num_girls)"
+            FROM my_schema.my_table
+            WHERE ds >= '1983-01-01 00:00:00'
+                AND ds < '2023-02-14 00:00:00'
+            GROUP BY name
+            ORDER BY "SUM(num_boys)" DESC) AS rowcount_qry) AS anon_1
+        JOIN query_a_results ON 1 = 1
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
+
+
+def test_creates_query_without_time_comparison(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": ["name"],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": False,
+        "is_timeseries": False,
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 0,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        SELECT name AS name,
+            sum(num_boys) AS "SUM(num_boys)",
+            sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1984-01-01 00:00:00'
+        AND ds < '2024-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC
+        LIMIT 10
+        OFFSET 0
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
+
+
+def test_creates_time_comparison_query_custom_filters(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": ["name"],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": False,
+        "is_timeseries": False,
+        "instant_time_comparison_info": {
+            "range": "c",
+            "filter": {
+                "op": "TEMPORAL_RANGE",
+                "val": "1900-01-01 : 1950-02-14",
+                "col": "ds",
+            },
+        },
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 0,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        WITH query_a_results AS
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1984-01-01 00:00:00'
+            AND ds < '2024-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC
+        LIMIT 10
+        OFFSET 0)
+        SELECT query_a_results.name AS name,
+            query_a_results."SUM(num_boys)" AS "SUM(num_boys)",
+            query_a_results."SUM(num_girls)" AS "SUM(num_girls)",
+            anon_1."SUM(num_boys)" AS "prev_SUM(num_boys)",
+            anon_1."SUM(num_girls)" AS "prev_SUM(num_girls)"
+        FROM
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1900-01-01 00:00:00'
+            AND ds < '1950-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC) AS anon_1
+        JOIN query_a_results ON anon_1.name = query_a_results.name
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
+
+
+def test_creates_time_comparison_query_paginated(session: Session):
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric, TableColumn
+    from superset.models.core import Database
+
+    engine = db.session.get_bind()
+    SqlaTable.metadata.create_all(engine)  # pylint: disable=no-member
+
+    table = SqlaTable(
+        table_name="my_table",
+        schema="my_schema",
+        database=Database(database_name="my_database", sqlalchemy_uri="sqlite://"),
+    )
+
+    TableColumn(column_name="ds", type="DATETIME", table=table)
+    TableColumn(column_name="gender", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="name", type="VARCHAR(255)", table=table)
+    TableColumn(column_name="state", type="VARCHAR(255)", table=table)
+    SqlMetric(metric_name="count", expression="count(*)", table=table)
+    SqlMetric(metric_name="sum_sum", expression="SUM", table=table)
+    db.session.add(table)
+    db.session.flush()
+    query_obj = {
+        "apply_fetch_values_predicate": False,
+        "columns": ["name"],
+        "extras": {"having": "", "where": ""},
+        "filter": [
+            {"op": "TEMPORAL_RANGE", "val": "1984-01-01 : 2024-02-14", "col": "ds"}
+        ],
+        "from_dttm": datetime.datetime(1984, 1, 1, 0, 0),
+        "granularity": None,
+        "inner_from_dttm": None,
+        "inner_to_dttm": None,
+        "is_rowcount": False,
+        "is_timeseries": False,
+        "instant_time_comparison_info": {
+            "range": "y",
+        },
+        "metrics": [
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_boys",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 334,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_boys)",
+                "optionName": "metric_gzp6eq9g1lc_d8o0mj0mhq4",
+                "sqlExpression": None,
+            },
+            {
+                "aggregate": "SUM",
+                "column": {
+                    "advanced_data_type": None,
+                    "certification_details": None,
+                    "certified_by": None,
+                    "column_name": "num_girls",
+                    "description": None,
+                    "expression": None,
+                    "filterable": True,
+                    "groupby": True,
+                    "id": 335,
+                    "is_certified": False,
+                    "is_dttm": False,
+                    "python_date_format": None,
+                    "type": "BIGINT",
+                    "type_generic": 0,
+                    "verbose_name": None,
+                    "warning_markdown": None,
+                },
+                "datasourceWarning": False,
+                "expressionType": "SIMPLE",
+                "hasCustomLabel": False,
+                "label": "SUM(num_girls)",
+                "optionName": "metric_5gyhtmyfw1t_d42py86jpco",
+                "sqlExpression": None,
+            },
+        ],
+        "order_desc": True,
+        "orderby": [("SUM(num_boys)", False)],
+        "row_limit": 10,
+        "row_offset": 20,
+        "series_columns": [],
+        "series_limit": 0,
+        "series_limit_metric": None,
+        "to_dttm": datetime.datetime(2024, 2, 14, 0, 0),
+        "time_shift": None,
+    }
+    str = table.get_query_str_extended(query_obj)
+    expected_str = """
+        WITH query_a_results AS
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1984-01-01 00:00:00'
+            AND ds < '2024-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC
+        LIMIT 10
+        OFFSET 20)
+        SELECT query_a_results.name AS name,
+            query_a_results."SUM(num_boys)" AS "SUM(num_boys)",
+            query_a_results."SUM(num_girls)" AS "SUM(num_girls)",
+            anon_1."SUM(num_boys)" AS "prev_SUM(num_boys)",
+            anon_1."SUM(num_girls)" AS "prev_SUM(num_girls)"
+        FROM
+        (SELECT name AS name,
+                sum(num_boys) AS "SUM(num_boys)",
+                sum(num_girls) AS "SUM(num_girls)"
+        FROM my_schema.my_table
+        WHERE ds >= '1983-01-01 00:00:00'
+            AND ds < '2023-02-14 00:00:00'
+        GROUP BY name
+        ORDER BY "SUM(num_boys)" DESC) AS anon_1
+        JOIN query_a_results ON anon_1.name = query_a_results.name
+    """
+    simplified_query1 = " ".join(str.sql.split()).lower()
+    simplified_query2 = " ".join(expected_str.split()).lower()
+    assert table.id == 1
+    assert simplified_query1 == simplified_query2
