@@ -25,6 +25,7 @@ import React, {
   MouseEvent,
 } from 'react';
 import {
+  Column,
   ColumnGroup,
   ColumnInstance,
   ColumnWithLooseAccessor,
@@ -253,6 +254,8 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   // keep track of whether column order changed, so that column widths can too
   const [columnOrderToggle, setColumnOrderToggle] = useState(false);
 
+  const [expandHeaderToggle, setExpandHeaderToggle] = useState(false);
+
   // only take relevant page size options
   const pageSizeOptions = useMemo(() => {
     const getServerPagination = (n: number) => n <= rowCount;
@@ -420,31 +423,81 @@ export default function TableChart<D extends DataRecord = DataRecord>(
 
   const getHeaderColumns = (
     columnsMeta: DataColumnMeta[],
+    columns: ColumnWithLooseAccessor[],
     enableTimeComparison?: boolean,
-  ) => {
-    const resultMap: Record<string, number[]> = {};
+  ): ColumnGroup[] => {
+    const resultMap: Record<string, string[]> = {};
 
     if (!enableTimeComparison) {
-      return resultMap;
+      return [];
     }
 
     columnsMeta.forEach((element, index) => {
       // Check if element's label is one of the comparison labels
       if (comparisonLabels.includes(element.label)) {
-        // Extract the key portion after the space, assuming the format is always "label key"
         const keyPortion = element.key.split(' ')[1];
 
         // If the key portion is not in the map, initialize it with the current index
         if (!resultMap[keyPortion]) {
-          resultMap[keyPortion] = [index];
+          resultMap[keyPortion] = [`${index}`];
         } else {
           // Add the index to the existing array
-          resultMap[keyPortion].push(index);
+          resultMap[keyPortion].push(`${index}`);
+        }
+      } else {
+        // If the label is not in the comparison labels, initialize it with the current index
+        if (!resultMap[element.label]) {
+          resultMap[element.label] = [`${index}`];
+        } else {
+          // Add the index to the existing array
+          resultMap[element.label].push(`${index}`);
         }
       }
     });
 
-    return resultMap;
+    const result: ColumnGroup[] = [];
+    Object.keys(resultMap).forEach(key => {
+      const columnGroup: ColumnGroup<D> = {
+        id: key, // Add the required 'id' property
+        Header: ({
+          column: col,
+          setHiddenColumns,
+          columns,
+        }: {
+          onClick: any;
+          column: ColumnInstance;
+          setHiddenColumns: any;
+          initialState: any;
+          columns: any;
+        }) => (
+          <th title={t('Hader title')} colSpan={columns.length}>
+            {columns.length > 1 ? (
+              <div data-column-name={col.id}>
+                <span data-column-name={col.id}>{key}</span>
+                <button
+                  onClick={() => {
+                    setHiddenColumns(resultMap[key].slice(1));
+                    setExpandHeaderToggle(!expandHeaderToggle);
+                  }}
+                >
+                  E/C Click
+                </button>
+              </div>
+            ) : null}
+          </th>
+        ),
+        columns: columns.filter(
+          col => resultMap[key]?.includes(col.id || ''),
+        ) as Column<D>[],
+      };
+
+      result.push(columnGroup);
+    });
+
+    console.log('COLUMNS USED: ', columns);
+    console.log('GROUP COLUMNS HEADERS USED: ', result);
+
+    return result;
   };
 
   const getColumnConfigs = useCallback(
@@ -697,17 +750,18 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       totals,
       columnColorFormatters,
       columnOrderToggle,
+      expandHeaderToggle,
     ],
   );
 
   const columns = useMemo(
     () => columnsMeta.map(getColumnConfigs),
-    [columnsMeta, getColumnConfigs],
+    [columnsMeta, getColumnConfigs, expandHeaderToggle],
   );
 
   const groupHeaderColumns = useMemo(
-    () => getHeaderColumns(columnsMeta, enableTimeComparison),
-    [columnsMeta, enableTimeComparison],
+    () => getHeaderColumns(columnsMeta, columns, enableTimeComparison),
+    [columnsMeta, enableTimeComparison, expandHeaderToggle, columns],
   );
 
   const handleServerPaginationChange = useCallback(
@@ -775,7 +829,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         // not in use in Superset, but needed for unit tests
         sticky={sticky}
         groupHeaderColumns={
-          !isEmpty(groupHeaderColumns) ? groupHeaderColumns : undefined
+          !isEmpty(groupHeaderColumns) ? groupHeaderColumns : []
         }
       />
     </Styles>

@@ -35,6 +35,8 @@ import {
   FilterType,
   IdType,
   Row,
+  ColumnGroup,
+  Column,
 } from 'react-table';
 import { matchSorter, rankings } from 'match-sorter';
 import { typedMemo, usePrevious } from '@superset-ui/core';
@@ -67,7 +69,7 @@ export interface DataTableProps<D extends object> extends TableOptions<D> {
   rowCount: number;
   wrapperRef?: MutableRefObject<HTMLDivElement>;
   onColumnOrderChange: () => void;
-  groupHeaderColumns?: Record<string, number[]>;
+  groupHeaderColumns: ColumnGroup[];
 }
 
 export interface RenderHTMLCellProps extends HTMLProps<HTMLTableCellElement> {
@@ -184,9 +186,10 @@ export default typedMemo(function DataTable<D extends object>({
     setColumnOrder,
     allColumns,
     state: { pageIndex, pageSize, globalFilter: filterValue, sticky = {} },
+    setHiddenColumns,
   } = useTable<D>(
     {
-      columns,
+      columns: groupHeaderColumns as readonly Column<D>[],
       data,
       initialState,
       getTableSize: defaultGetTableSize,
@@ -221,8 +224,6 @@ export default typedMemo(function DataTable<D extends object>({
     ) as JSX.Element;
   }
 
-  console.log('PASSEG HEADERS: ', groupHeaderColumns);
-
   const shouldRenderFooter = columns.some(x => !!x.Footer);
 
   let columnBeingDragged = -1;
@@ -252,45 +253,10 @@ export default typedMemo(function DataTable<D extends object>({
     e.preventDefault();
   };
 
-  const renderDynamicHeaders = () => {
-    const headers: any = [];
-    let currentColumnIndex = 0;
-
-    Object.entries(groupHeaderColumns || {}).forEach(([key, value], index) => {
-      // Calculate the number of placeholder columns needed before the current header
-      const startPosition = value[0];
-      const colSpan = value.length;
-
-      // Add placeholder <th> for columns before this header
-      for (let i = currentColumnIndex; i < startPosition; i += 1) {
-        headers.push(
-          <th
-            key={`placeholder-${i}`}
-            style={{ borderBottom: 0 }}
-            aria-label={`Header-${i}`}
-          />,
-        );
-      }
-
-      // Add the current header <th>
-      headers.push(
-        <th key={`header-${key}`} colSpan={colSpan} style={{ borderBottom: 0 }}>
-          {key}
-        </th>,
-      );
-
-      // Update the current column index
-      currentColumnIndex = startPosition + colSpan;
-    });
-
-    return headers;
-  };
-
   const renderTable = () => (
     <table {...getTableProps({ className: tableClassName })}>
       <thead>
         {/* Render dynamic headers based on resultMap */}
-        {groupHeaderColumns ? <tr>{renderDynamicHeaders()}</tr> : null}
         {headerGroups.map(headerGroup => {
           const { key: headerGroupKey, ...headerGroupProps } =
             headerGroup.getHeaderGroupProps();
@@ -306,6 +272,9 @@ export default typedMemo(function DataTable<D extends object>({
                   ...column.getSortByToggleProps(),
                   onDragStart,
                   onDrop,
+                  setHiddenColumns,
+                  initialState,
+                  columns: column?.columns,
                 }),
               )}
             </tr>
@@ -333,21 +302,6 @@ export default typedMemo(function DataTable<D extends object>({
           </tr>
         )}
       </tbody>
-      {shouldRenderFooter && (
-        <tfoot>
-          {footerGroups.map(footerGroup => {
-            const { key: footerGroupKey, ...footerGroupProps } =
-              footerGroup.getHeaderGroupProps();
-            return (
-              <tr key={footerGroupKey || footerGroup.id} {...footerGroupProps}>
-                {footerGroup.headers.map(column =>
-                  column.render('Footer', { key: column.id }),
-                )}
-              </tr>
-            );
-          })}
-        </tfoot>
-      )}
     </table>
   );
 
